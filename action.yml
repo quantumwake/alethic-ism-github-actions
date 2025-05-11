@@ -23,9 +23,8 @@ inputs:
     required: false
     default: 'default'
   k8s-deployment:
-    description: 'Kubernetes deployment name'
+    description: 'Kubernetes deployment name (if not specified, will use image-name-deployment)'
     required: false
-    default: '${{ inputs.image-name }}-deployment'
   deployment-file:
     description: 'Path to Kubernetes deployment template'
     required: false
@@ -98,6 +97,16 @@ runs:
       shell: bash
       run: ${{ inputs.k8s-config }}
 
+    - name: Set deployment name
+      id: set-deployment
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.k8s-deployment }}" ]; then
+          echo "DEPLOYMENT_NAME=${{ inputs.image-name }}-deployment" >> $GITHUB_OUTPUT
+        else
+          echo "DEPLOYMENT_NAME=${{ inputs.k8s-deployment }}" >> $GITHUB_OUTPUT
+        fi
+
     - name: Deploy to Kubernetes
       if: inputs.k8s-config != 'none'
       shell: bash
@@ -106,7 +115,7 @@ runs:
           -i "${{ steps.set-image.outputs.IMAGE }}" \
           -f "${{ inputs.deployment-file }}" \
           -n "${{ inputs.k8s-namespace }}" \
-          -d "${{ inputs.k8s-deployment }}"
+          -d "${{ steps.set-deployment.outputs.DEPLOYMENT_NAME }}"
 
     # Conditionally create GitHub release
     - name: Generate changelog
