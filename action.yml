@@ -1,0 +1,147 @@
+name: 'Docker Build and Deploy'
+description: 'Build, push, and deploy Docker images to Kubernetes'
+inputs:
+  image-name:
+    description: 'Base image name (e.g., username/repository)'
+    required: true
+  registry:
+    description: 'Docker registry to use'
+    required: false
+    default: 'docker.io'
+  registry-username:
+    description: 'Docker registry username'
+    required: true
+  registry-token:
+    description: 'Docker registry token'
+    required: true
+  k8s-config:
+    description: 'Kubernetes config type or command to load config'
+    required: false
+    default: 'none'
+  k8s-namespace:
+    description: 'Kubernetes namespace'
+    required: false
+    default: 'default'
+  k8s-deployment:
+    description: 'Kubernetes deployment name'
+    required: false
+    default: '${{ inputs.image-name }}-deployment'
+  deployment-file:
+    description: 'Path to Kubernetes deployment template'
+    required: false
+    default: 'k8s/deployment.yaml'
+  build-args:
+    description: 'Extra args for docker build'
+    required: false
+    default: ''
+  tag:
+    description: 'Image tag (defaults to git tag or short commit SHA)'
+    required: false
+    default: ''
+  create-github-release:
+    description: 'Create a GitHub release for tags'
+    required: false
+    default: 'false'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Determine version
+      id: version
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.tag }}" ]; then
+          echo "VERSION=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+        elif git describe --exact-match --tags >/dev/null 2>&1; then
+          echo "VERSION=$(git describe --exact-match --tags)" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Set image name
+      id: set-image
+      shell: bash
+      run: |
+        echo "IMAGE=${{ inputs.registry }}/${{ inputs.image-name }}:${{ steps.version.outputs.VERSION }}" >> $GITHUB_OUTPUT
+        echo "IMAGE_LATEST=${{ inputs.registry }}/${{ inputs.image-name }}:latest" >> $GITHUB_OUTPUT
+
+    - name: Build Docker image
+      shell: bash
+      run: |
+        ${{ github.action_path }}/scripts/docker_build.sh \
+          -i "${{ steps.set-image.outputs.IMAGE }}" \
+          -l "${{ steps.set-image.outputs.IMAGE_LATEST }}" \
+          ${{ inputs.build-args }}
+
+    - name: Login to Docker Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.registry-username }}
+        password: ${{ inputs.registry-token }}
+
+    - name: Push Docker image
+      shell: bash
+      run: |
+        ${{ github.action_path }}/scripts/docker_push.sh \
+          -i "${{ steps.set-image.outputs.IMAGE }}" \
+          -l "${{ steps.set-image.outputs.IMAGE_LATEST }}"
+
+    # Conditionally run Kubernetes deployment
+    - name: Setup Kubernetes config
+      if: inputs.k8s-config != 'none'
+      shell: bash
+      run: ${{ inputs.k8s-config }}
+
+    - name: Deploy to Kubernetes
+      if: inputs.k8s-config != 'none'
+      shell: bash
+      run: |
+        ${{ github.action_path }}/scripts/docker_deploy.sh \
+          -i "${{ steps.set-image.outputs.IMAGE }}" \
+          -f "${{ inputs.deployment-file }}" \
+          -n "${{ inputs.k8s-namespace }}" \
+          -d "${{ inputs.k8s-deployment }}"
+
+    # Conditionally create GitHub release
+    - name: Generate changelog
+      if: inputs.create-github-release == 'true' && startsWith(github.ref, 'refs/tags/')
+      id: changelog
+      shell: bash
+      run: |
+        GITHUB_TAG="${{ steps.version.outputs.VERSION }}"
+        PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_TAG}^" 2>/dev/null || echo "")
+        if [ -n "$PREV_TAG" ]; then
+          echo "Changelog from $PREV_TAG → $GITHUB_TAG"
+          CHANGELOG=$(git log "$PREV_TAG..$GITHUB_TAG" --pretty=format:'- %s' || echo "")
+        else
+          echo "First release - no previous tag"
+          CHANGELOG=$(git log --pretty=format:'- %s')
+        fi
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      if: inputs.create-github-release == 'true' && startsWith(github.ref, 'refs/tags/')
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        release_name: Release ${{ steps.version.outputs.VERSION }}
+        body: |
+          ## 📝 Changelog
+          ${{ steps.changelog.outputs.CHANGELOG }}
+        draft: false
+        prerelease: false
+
+outputs:
+  image:
+    description: "Full Docker image name with tag"
+    value: ${{ steps.set-image.outputs.IMAGE }}
