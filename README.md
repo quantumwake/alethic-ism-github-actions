@@ -1,163 +1,142 @@
-# Docker Build and Deploy Action
+# Docker Build and Deploy GitHub Action
 
-A reusable GitHub Action to build, push, and deploy Docker images to Kubernetes.
+This GitHub Action automates the process of building, pushing, and deploying Docker images to Kubernetes. It handles versioning, Docker registry authentication, and Kubernetes deployment in a single workflow.
 
-## Setup Instructions
+## Features
 
-### 1. Create a dedicated repository for this action
+- 🐳 Automatic Docker image building and pushing
+- 🔄 Version management (git tags or commit SHA)
+- 🔐 Secure registry authentication
+- 🚀 Kubernetes deployment support
+- 📝 Automatic changelog generation for releases
+- 🏷️ Latest tag support
 
-```bash
-# Clone the repository into a new directory
-mkdir -p ~/Development/quantumwake/docker-build-deploy-action
-cp -r templates/* ~/Development/quantumwake/docker-build-deploy-action/
-cd ~/Development/quantumwake/docker-build-deploy-action
-
-# Initialize git repository and commit
-git init
-git add .
-git commit -m "Initial commit for Docker build and deploy action"
-
-# Create GitHub repository and push
-# Replace YOUR_USERNAME with your GitHub username
-gh repo create docker-build-deploy-action --public --source=. --push
-```
-
-### 2. Reference the action in your projects
-
-In each project, create a GitHub workflow file (`.github/workflows/build-deploy.yml`):
+## Usage
 
 ```yaml
 name: Build and Deploy
 
 on:
   push:
-    tags: [ "v*" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
-
-permissions:
-  contents: write  # Needed for creating releases
+    branches: [ main ]
 
 jobs:
-  build-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Build, Push, and Deploy Docker Image
-        uses: quantumwake/docker-build-deploy-action@main
+      - uses: quantumwake/alethic-ism-github-actions@main
         with:
           # Required inputs
-          image-name: 'your-username/your-repo'  # Replace with your image name
-          registry-username: ${{ vars.DOCKERHUB_USERNAME }}
-          registry-token: ${{ secrets.DOCKERHUB_TOKEN }}
+          image-name: 'your-username/your-repo'  # Format: username/repository
+          registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          registry-token: ${{ secrets.DOCKERHUB_TOKEN }}  # Use access token, not password
           
-          # Optional inputs with defaults shown
-          registry: 'docker.io'  # Docker registry to use
-          k8s-config: 'none'  # Set to command that loads Kubernetes config
-          k8s-namespace: 'default'  # Kubernetes namespace
-          k8s-deployment: 'your-repo-deployment'  # K8s deployment name
-          deployment-file: 'k8s/deployment.yaml'  # Path to deployment template
-          build-args: ''  # Additional build arguments
-          create-github-release: 'true'  # Create GitHub release for tags
+          # Optional inputs
+          registry: 'docker.io'  # Default Docker Hub registry
+          k8s-config: 'your-k8s-config-command'  # Required only for Kubernetes deployment
+          k8s-namespace: 'default'
+          k8s-deployment: ''  # If not specified, will use {image-name}-deployment
+          deployment-file: 'k8s/deployment.yaml'
+          build-args: '--build-arg KEY=VALUE'
+          tag: ''  # Optional, defaults to git tag or commit SHA
+          create-github-release: 'false'
 ```
 
-## Configuration Options
+## Input Parameters
 
-### Required Inputs
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `image-name` | Yes | - | Base image name (format: username/repository) |
+| `registry-username` | Yes | - | Docker registry username |
+| `registry-token` | Yes | - | Docker registry access token (not password) |
+| `registry` | No | `docker.io` | Docker registry URL |
+| `k8s-config` | No | `none` | Kubernetes config command or type |
+| `k8s-namespace` | No | `default` | Kubernetes namespace |
+| `k8s-deployment` | No | - | Kubernetes deployment name (defaults to {image-name}-deployment) |
+| `deployment-file` | No | `k8s/deployment.yaml` | Path to Kubernetes deployment template |
+| `build-args` | No | `''` | Extra arguments for docker build |
+| `tag` | No | - | Image tag (defaults to git tag or commit SHA) |
+| `create-github-release` | No | `false` | Create GitHub release for tags |
 
-- `image-name`: Base image name (e.g., username/repository)
-- `registry-username`: Docker registry username
-- `registry-token`: Docker registry token
+## Important Notes
 
-### Optional Inputs
+### Docker Registry Authentication
+- Use a Docker Hub access token instead of your password
+- The token needs push permissions to your repository
+- For Docker Hub, the registry should be `docker.io`
 
-- `registry`: Docker registry to use (default: 'docker.io')
-- `k8s-config`: Command to load Kubernetes config (default: 'none')
-  - Example for DigitalOcean: `doctl kubernetes cluster kubeconfig save --expiry-seconds 600 your-cluster-name`
-  - Set to 'none' to skip deployment steps
-- `k8s-namespace`: Kubernetes namespace (default: 'default')
-- `k8s-deployment`: Kubernetes deployment name (default: derived from image-name)
-- `deployment-file`: Path to Kubernetes deployment template (default: 'k8s/deployment.yaml')
-- `build-args`: Extra args for docker build
-- `tag`: Image tag (defaults to git tag or short commit SHA)
-- `create-github-release`: Create a GitHub release for tags (default: 'false')
+### Version Management
+- If a git tag is present, it will be used as the image tag
+- Otherwise, the short commit SHA will be used
+- The `latest` tag is always pushed alongside the versioned tag
 
-## Examples
+### Kubernetes Deployment
+- Set `k8s-config` to enable Kubernetes deployment
+- The deployment name defaults to `{image-name}-deployment`
+- Make sure your Kubernetes config has proper permissions
 
-### Basic Docker Build and Push
+### GitHub Releases
+- Set `create-github-release: 'true'` to create releases
+- Only creates releases for git tags
+- Automatically generates changelog from commit messages
 
-```yaml
-- name: Build and Push Docker Image
-  uses: quantumwake/docker-build-deploy-action@main
-  with:
-    image-name: 'your-username/your-repo'
-    registry-username: ${{ vars.DOCKERHUB_USERNAME }}
-    registry-token: ${{ secrets.DOCKERHUB_TOKEN }}
-```
+## Outputs
 
-### Complete Build, Push, and Deploy to DigitalOcean Kubernetes
+| Output | Description |
+|--------|-------------|
+| `image` | Full Docker image name with tag |
 
-```yaml
-- name: Build, Push, and Deploy
-  uses: quantumwake/docker-build-deploy-action@main
-  with:
-    image-name: 'your-username/your-repo'
-    registry-username: ${{ vars.DOCKERHUB_USERNAME }}
-    registry-token: ${{ secrets.DOCKERHUB_TOKEN }}
-    k8s-config: 'doctl kubernetes cluster kubeconfig save --expiry-seconds 600 your-cluster-name'
-    k8s-namespace: 'your-namespace'
-    create-github-release: 'true'
-```
-
-## Kubernetes Deployment Template
-
-Your K8s deployment file (`k8s/deployment.yaml`) should include an `<IMAGE>` placeholder:
+## Example Workflow
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: your-app-deployment
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: your-app
-  template:
-    metadata:
-      labels:
-        app: your-app
-    spec:
-      containers:
-      - name: your-app
-        image: <IMAGE>  # This will be replaced with the actual image
-        ports:
-        - containerPort: 8080
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: quantumwake/alethic-ism-github-actions@main
+        with:
+          image-name: 'quantumwake/myapp'
+          registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          registry-token: ${{ secrets.DOCKERHUB_TOKEN }}
+          k8s-config: 'echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig.yaml && export KUBECONFIG=kubeconfig.yaml'
+          k8s-namespace: 'production'
+          create-github-release: 'true'
 ```
 
 ## Security Considerations
 
-1. Store credentials (registry tokens, K8s access tokens) as GitHub Secrets
-2. Use GitHub Variables for non-sensitive configuration (usernames, namespaces)
-3. Set appropriate permissions in your workflow file
-
-## Customization
-
-The action scripts support additional customization:
-
-1. Multi-platform builds (`-p linux/arm64,linux/amd64`)
-2. Buildpack support (`-b` flag)
-3. Custom deployment operations
+1. Never use your Docker Hub password in workflows
+2. Use repository secrets for sensitive information
+3. Ensure your Docker Hub token has minimal required permissions
+4. Regularly rotate your access tokens
 
 ## Troubleshooting
 
-If you encounter issues:
+### Common Issues
 
-1. Check the action logs for detailed output
-2. Verify your credentials are properly set in GitHub Secrets
-3. Ensure your deployment template contains the `<IMAGE>` placeholder
-4. For K8s deployment failures, check that your kubectl configuration is correct
+1. **Permission Denied**
+   - Verify your Docker Hub token has push permissions
+   - Check if the image name matches your Docker Hub username
+   - Ensure the registry URL is correct
+
+2. **Kubernetes Deployment Fails**
+   - Verify your k8s-config command
+   - Check namespace permissions
+   - Ensure deployment template is valid
+
+3. **Script Permission Issues**
+   - Make sure the shell scripts in the action are executable
+   - Check if the action has proper permissions
+
+## License
+
+[Add your license information here]
