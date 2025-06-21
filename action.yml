@@ -87,7 +87,7 @@ runs:
         ${{ github.action_path }}/scripts/docker_build.sh \
           -i "${{ steps.set-image.outputs.IMAGE }}" \
           -l "${{ steps.set-image.outputs.IMAGE_LATEST }}" \
-          ${{ inputs.build-args }}
+          -- ${{ inputs.build-args }}
 
     - name: Login to Docker Registry
       uses: docker/login-action@v3

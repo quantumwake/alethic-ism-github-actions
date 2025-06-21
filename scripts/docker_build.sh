@@ -2,17 +2,19 @@
 
 # Function to print usage
 print_usage() {
-  echo "Usage: $0 [-i image] [-l latest_image] [-p architecture] [-b use_buildpack]"
+  echo "Usage: $0 [-i image] [-l latest_image] [-p architecture] [-b use_buildpack] [-- build_args]"
   echo "  -i image           Docker image with tag (e.g., docker.io/username/repo:tag)"
   echo "  -l latest_image    Latest version of the Docker image (optional)"
   echo "  -p platform        Target platform architecture (linux/amd64, linux/arm64, ...)"
   echo "  -b                 Use buildpack instead of direct Docker build (optional)"
+  echo "  --                 Everything after this is passed as build args to docker build"
 }
 
 # Default values
 ARCH="linux/amd64"
 USE_BUILDPACK=false
 LATEST_IMAGE=""
+BUILD_ARGS=""
 
 # Parse command line arguments
 while getopts 'i:l:p:b' flag; do
@@ -25,6 +27,19 @@ while getopts 'i:l:p:b' flag; do
        exit 1 ;;
   esac
 done
+
+# Shift past the parsed options
+shift $((OPTIND-1))
+
+# Process build args - convert each arg to "--build-arg ARG"
+BUILD_ARGS=""
+for arg in "$@"; do
+  if [ -n "$arg" ]; then
+    BUILD_ARGS="$BUILD_ARGS --build-arg $arg"
+  fi
+done
+# Trim leading space if any
+BUILD_ARGS="${BUILD_ARGS# }"
 
 # Check if IMAGE is provided
 if [ -z "$IMAGE" ]; then
@@ -43,6 +58,9 @@ echo "Platform: $ARCH"
 echo "Image: $IMAGE"
 echo "Latest: $LATEST_IMAGE"
 echo "Using Buildpack: $USE_BUILDPACK"
+if [ -n "$BUILD_ARGS" ]; then
+  echo "Build Args: $BUILD_ARGS"
+fi
 
 if [ "$USE_BUILDPACK" = true ]; then
   echo "Building with buildpack..."
@@ -58,6 +76,11 @@ if [ "$USE_BUILDPACK" = true ]; then
   fi
 else
   echo "Building with Docker..."
-  docker build --progress=plain \
-    --platform "$ARCH" -t "$IMAGE" -t "$LATEST_IMAGE" .
+  if [ -n "$BUILD_ARGS" ]; then
+    docker build --progress=plain \
+      --platform "$ARCH" -t "$IMAGE" -t "$LATEST_IMAGE" $BUILD_ARGS .
+  else
+    docker build --progress=plain \
+      --platform "$ARCH" -t "$IMAGE" -t "$LATEST_IMAGE" .
+  fi
 fi
