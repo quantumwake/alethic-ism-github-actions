@@ -1,5 +1,5 @@
 name: 'Docker Build and Deploy'
-description: 'Build, push, and deploy Docker images to Kubernetes'
+description: 'Build, push, and deploy Docker images to Kubernetes with branch/tag filtering'
 inputs:
   image-name:
     description: 'Base image name (e.g., username/repository)'
@@ -39,6 +39,18 @@ inputs:
     default: ''
   create-github-release:
     description: 'Create a GitHub release for tags'
+    required: false
+    default: 'false'
+  deploy-branches:
+    description: 'Comma-separated list of branches to deploy from (e.g., main,develop)'
+    required: false
+    default: ''
+  deploy-tags:
+    description: 'Comma-separated list of tag patterns to deploy from (e.g., v*,release-*)'
+    required: false
+    default: ''
+  deploy-all:
+    description: 'Deploy from all branches and tags if true (overrides deploy-branches and deploy-tags)'
     required: false
     default: 'false'
 
@@ -92,13 +104,67 @@ runs:
           -l "${{ steps.set-image.outputs.IMAGE_LATEST }}"
 
     # Conditionally run Kubernetes deployment
+    - name: Check deployment conditions
+      id: deploy-check
+      shell: bash
+      run: |
+        SHOULD_DEPLOY="false"
+
+        # Extract current branch or tag
+        BRANCH_NAME=${GITHUB_REF#refs/heads/}
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        IS_TAG="false"
+        if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          IS_TAG="true"
+          CURRENT_REF="$TAG_NAME"
+        else
+          CURRENT_REF="$BRANCH_NAME"
+        fi
+
+        echo "Current ref: $CURRENT_REF (Is tag: $IS_TAG)"
+
+        # Check if deploy-all is true
+        if [[ "${{ inputs.deploy-all }}" == "true" ]]; then
+          SHOULD_DEPLOY="true"
+          echo "Deploying because deploy-all is true"
+
+        # Check if current ref matches any deploy-branches
+        elif [[ "$IS_TAG" == "false" && -n "${{ inputs.deploy-branches }}" ]]; then
+          IFS=',' read -ra BRANCHES <<< "${{ inputs.deploy-branches }}"
+          for b in "${BRANCHES[@]}"; do
+            if [[ "$CURRENT_REF" == ${b} ]]; then
+              SHOULD_DEPLOY="true"
+              echo "Deploying because current branch '$CURRENT_REF' matches allowed branch pattern '$b'"
+              break
+            fi
+          done
+
+        # Check if current ref matches any deploy-tags pattern
+        elif [[ "$IS_TAG" == "true" && -n "${{ inputs.deploy-tags }}" ]]; then
+          IFS=',' read -ra TAGS <<< "${{ inputs.deploy-tags }}"
+          for t in "${TAGS[@]}"; do
+            # Convert glob pattern to regex for bash case statement
+            pattern=${t//\*/.*}
+            if [[ "$CURRENT_REF" =~ ^${pattern}$ ]]; then
+              SHOULD_DEPLOY="true"
+              echo "Deploying because current tag '$CURRENT_REF' matches allowed tag pattern '$t'"
+              break
+            fi
+          done
+        else
+          echo "No deployment conditions met"
+        fi
+
+        echo "SHOULD_DEPLOY=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
+
     - name: Setup Kubernetes config
-      if: inputs.k8s-config != 'none'
+      if: inputs.k8s-config != 'none' && steps.deploy-check.outputs.SHOULD_DEPLOY == 'true'
       shell: bash
       run: ${{ inputs.k8s-config }}
 
     - name: Set deployment name
       id: set-deployment
+      if: steps.deploy-check.outputs.SHOULD_DEPLOY == 'true'
       shell: bash
       run: |
         if [ -z "${{ inputs.k8s-deployment }}" ]; then
@@ -108,7 +174,7 @@ runs:
         fi
 
     - name: Deploy to Kubernetes
-      if: inputs.k8s-config != 'none'
+      if: inputs.k8s-config != 'none' && steps.deploy-check.outputs.SHOULD_DEPLOY == 'true'
       shell: bash
       run: |
         ${{ github.action_path }}/scripts/docker_deploy.sh \

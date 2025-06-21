@@ -1,6 +1,6 @@
 # Docker Build and Deploy GitHub Action
 
-This GitHub Action automates the process of building, pushing, and deploying Docker images to Kubernetes. It handles versioning, Docker registry authentication, and Kubernetes deployment in a single workflow.
+This GitHub Action automates the process of building, pushing, and deploying Docker images to Kubernetes. It handles versioning, Docker registry authentication, and Kubernetes deployment in a single workflow with support for branch/tag filtering.
 
 ## Features
 
@@ -8,8 +8,9 @@ This GitHub Action automates the process of building, pushing, and deploying Doc
 - 🔄 Version management (git tags or commit SHA)
 - 🔐 Secure registry authentication
 - 🚀 Kubernetes deployment support
-- 📝 Automatic changelog generation for releases
 - 🏷️ Latest tag support
+- 📝 Automatic changelog generation for releases
+- 🌿 Branch and tag deployment filtering
 
 ## Usage
 
