@@ -2,11 +2,13 @@
 
 # Function to print usage
 print_usage() {
-  echo "Usage: $0 [-i image] [-l latest_image] [-p architecture] [-b use_buildpack] [-- build_args]"
+  echo "Usage: $0 [-i image] [-l latest_image] [-p architecture] [-b use_buildpack] [-f dockerfile] [-c context] [-- build_args]"
   echo "  -i image           Docker image with tag (e.g., docker.io/username/repo:tag)"
   echo "  -l latest_image    Latest version of the Docker image (optional)"
   echo "  -p platform        Target platform architecture (linux/amd64, linux/arm64, ...)"
   echo "  -b                 Use buildpack instead of direct Docker build (optional)"
+  echo "  -f dockerfile      Path to Dockerfile (default: Dockerfile)"
+  echo "  -c context         Docker build context directory (default: .)"
   echo "  --                 Everything after this is passed as build args to docker build"
 }
 
@@ -15,14 +17,18 @@ ARCH="linux/amd64"
 USE_BUILDPACK=false
 LATEST_IMAGE=""
 BUILD_ARGS=""
+DOCKERFILE="Dockerfile"
+CONTEXT="."
 
 # Parse command line arguments
-while getopts 'i:l:p:b' flag; do
+while getopts 'i:l:p:bf:c:' flag; do
   case "${flag}" in
     i) IMAGE="${OPTARG}" ;;
     l) LATEST_IMAGE="${OPTARG}" ;;
     p) ARCH="${OPTARG}" ;;
     b) USE_BUILDPACK=true ;;
+    f) DOCKERFILE="${OPTARG}" ;;
+    c) CONTEXT="${OPTARG}" ;;
     *) print_usage
        exit 1 ;;
   esac
@@ -57,6 +63,8 @@ fi
 echo "Platform: $ARCH"
 echo "Image: $IMAGE"
 echo "Latest: $LATEST_IMAGE"
+echo "Dockerfile: $DOCKERFILE"
+echo "Context: $CONTEXT"
 echo "Using Buildpack: $USE_BUILDPACK"
 if [ -n "$BUILD_ARGS" ]; then
   echo "Build Args: $BUILD_ARGS"
@@ -66,10 +74,10 @@ if [ "$USE_BUILDPACK" = true ]; then
   echo "Building with buildpack..."
   pack build "$IMAGE" \
     --builder paketobuildpacks/builder:base \
-    --path . \
-    --env BP_DOCKERFILE=Dockerfile \
+    --path "$CONTEXT" \
+    --env BP_DOCKERFILE="$DOCKERFILE" \
     --env BP_PLATFORM_API="$ARCH"
-  
+
   # Tag latest if needed
   if [ "$IMAGE" != "$LATEST_IMAGE" ]; then
     docker tag "$IMAGE" "$LATEST_IMAGE"
@@ -78,9 +86,9 @@ else
   echo "Building with Docker..."
   if [ -n "$BUILD_ARGS" ]; then
     docker build --progress=plain \
-      --platform "$ARCH" -t "$IMAGE" -t "$LATEST_IMAGE" $BUILD_ARGS .
+      --platform "$ARCH" -f "$DOCKERFILE" -t "$IMAGE" -t "$LATEST_IMAGE" $BUILD_ARGS "$CONTEXT"
   else
     docker build --progress=plain \
-      --platform "$ARCH" -t "$IMAGE" -t "$LATEST_IMAGE" .
+      --platform "$ARCH" -f "$DOCKERFILE" -t "$IMAGE" -t "$LATEST_IMAGE" "$CONTEXT"
   fi
 fi

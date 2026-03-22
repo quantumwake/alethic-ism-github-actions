@@ -29,6 +29,14 @@ inputs:
     description: 'Path to Kubernetes deployment template'
     required: false
     default: 'k8s/deployment.yaml'
+  dockerfile:
+    description: 'Path to Dockerfile (relative to context)'
+    required: false
+    default: 'Dockerfile'
+  context:
+    description: 'Docker build context directory'
+    required: false
+    default: '.'
   build-args:
     description: 'Extra args for docker build'
     required: false
@@ -75,6 +83,8 @@ runs:
         ${{ github.action_path }}/scripts/docker_build.sh \
           -i "${{ steps.set-image.outputs.IMAGE }}" \
           -l "${{ steps.set-image.outputs.IMAGE_LATEST }}" \
+          -f "${{ inputs.dockerfile }}" \
+          -c "${{ inputs.context }}" \
           -- ${{ inputs.build-args }}
 
     - name: Login to Docker Registry
